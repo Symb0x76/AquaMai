@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace AquaMai.Mods.GameSystem.MaimollerIO.Libs;
 
-public class MaimollerDevice(int player)
+public class MaimollerDevice(int player, bool alt2p)
 {
 #region P/Invoke
 	private enum Status
@@ -41,8 +41,12 @@ public class MaimollerDevice(int player)
 
         // To align with the driver from manufacturer, 1P = 0 and 2P = 2.
         // But in IDA the devices array is {p1, p2, p1} and devices[0] == devices[2], so why?
-        // 经过测试，2P是1
-        _dev = adx_open(player == 0 ? 0 : 1);
+        // 左右脑互搏这块，现在实际表现是有些情况 2p 在 1 上，有些时候 2p 在 2 上
+        if (player == 0) {
+            _dev = adx_open(0);
+        } else {
+            _dev = adx_open(alt2p ? 1 : 2);
+        }
     }
 
     public void Update()

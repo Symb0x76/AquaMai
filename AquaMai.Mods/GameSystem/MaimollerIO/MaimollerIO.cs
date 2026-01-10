@@ -111,7 +111,12 @@ public class MaimollerIO
         /* button4 */ MaimollerInputReport.ButtonMask.COIN,
     ];
 
-    private static readonly MaimollerDevice[] _devices = [.. Enumerable.Range(0, 2).Select(i => new MaimollerDevice(i))];
+    [ConfigEntry("兼容性 2P 模式", 
+       en: "When mixing Maimoller with other protocols and Maimoller is on 2P, and Maimoller is not working properly, enable this",
+       zh: "当混用 Maimoller 与其他协议并且 Maimoller 在 2P 上，而且 Maimoller 无法正常使用时开启")]
+    private static readonly bool alternative2p = false;
+
+    private static readonly MaimollerDevice[] _devices = [.. Enumerable.Range(0, 2).Select(i => new MaimollerDevice(i, alternative2p))];
     private static readonly MaimollerLedManager[] _ledManagers = [.. Enumerable.Range(0, 2).Select(i => new MaimollerLedManager(_devices[i].output))];
 
     public static void OnBeforePatch()
