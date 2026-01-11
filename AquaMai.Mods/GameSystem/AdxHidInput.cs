@@ -9,6 +9,7 @@ using AquaMai.Config.Attributes;
 using AquaMai.Config.Types;
 using AquaMai.Core.Attributes;
 using AquaMai.Core.Helpers;
+using AquaMai.Mods.Fix;
 using AquaMai.Mods.Tweaks;
 using HarmonyLib;
 using HidLibrary;
@@ -102,14 +103,26 @@ public class AdxHidInput
         }
     }
 
+    [ConfigEntry("热插拔支持")]
+    private static readonly bool hotPlugSupport = true;
+
+    private static bool RealHotPlugSupport => hotPlugSupport && MaimollerFix.shit == null;
+
     private static void HidInputThread(int p)
     {
         while (true)
         {
-            while (!IsDeviceAvailable(p))
+            if (RealHotPlugSupport)
             {
-                Thread.Sleep(500);
-                TryConnectDevice(p);
+                while (!IsDeviceAvailable(p))
+                {
+                    Thread.Sleep(500);
+                    TryConnectDevice(p);
+                }
+            }
+            else
+            {
+                if (!IsDeviceAvailable(p)) return;
             }
 
             if (!NeedsButtonInput(p))
@@ -128,6 +141,7 @@ public class AdxHidInput
                 if (report.Status != HidDeviceData.ReadStatus.Success)
                 {
                     DisconnectDevice(p);
+                    if (!RealHotPlugSupport) return;
                     continue;
                 }
 
@@ -146,6 +160,7 @@ public class AdxHidInput
             catch
             {
                 DisconnectDevice(p);
+                if (!RealHotPlugSupport) return;
             }
         }
     }
@@ -214,6 +229,8 @@ public class AdxHidInput
         for (int i = 0; i < 2; i++)
         {
             if (hidThreadRunning[i]) continue;
+            if (!RealHotPlugSupport && adxController[i] == null) continue;
+            if (!RealHotPlugSupport && !NeedsButtonInput(i)) continue;
 
             keyEnabled = true;
             hidThreadRunning[i] = true;

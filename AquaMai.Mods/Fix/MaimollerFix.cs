@@ -17,7 +17,7 @@ namespace AquaMai.Mods.Fix;
 [EnableIf(nameof(shouldEnable))]
 public class MaimollerFix
 {
-    private static readonly Assembly shit = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(it => it.GetName().Name == "ADXHIDIOMod");
+    public static readonly Assembly shit = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(it => it.GetName().Name == "ADXHIDIOMod");
     private static bool shouldEnable = shit != null;
 
     public static void OnBeforePatch()
