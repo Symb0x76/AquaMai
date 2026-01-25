@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Linq;
+using System.Reflection;
 using AquaMai.Config.Attributes;
 using AquaMai.Core.Attributes;
 using HarmonyLib;
@@ -10,46 +11,54 @@ using Process;
 
 namespace AquaMai.Mods.Fix;
 
+// ReSharper disable UnusedMember.Local
 [EnableGameVersion(25500)]
 [ConfigSection(name: "Long Music 重开修复",
     zh: "修复 Long Music 重开时重复扣除 Track 数",
     exampleHidden: true, defaultOn: true)]
+[HarmonyPatch]
 public class FixLongMusicRestart
 {
-    private static bool isThisGameRestart = false;
+    private static bool _isThisGameRestart;
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(GameProcess), "OnStart")]
     public static void PreGameProcessStart()
     {
-        isThisGameRestart = Singleton<GamePlayManager>.Instance.IsQuickRetry();
+        _isThisGameRestart = Singleton<GamePlayManager>.Instance.IsQuickRetry();
     }
 
     [HarmonyPostfix]
     [HarmonyPatch(typeof(GameProcess), "OnStart")]
     public static void PostGameProcessStart()
     {
-        isThisGameRestart = false;
+        _isThisGameRestart = false;
     }
 
+    [HarmonyPrepare]
+    private static bool Prepare() => AccessTools.Method(typeof(DataManager), "IsLong") != null;
+
     [HarmonyPrefix]
-    [HarmonyPatch(typeof(DataManager), nameof(DataManager.IsLong))]
-    public static bool PatchIsLong(ref bool __result)
+    private static bool PatchIsLong(ref bool result)
     {
-        if (!isThisGameRestart)
+        if (!_isThisGameRestart)
         {
             return true;
         }
+
         var stackTrace = new StackTrace();
         var stackFrames = stackTrace.GetFrames();
-        if (stackFrames.All(it => it.GetMethod().DeclaringType.Name != "GameProcess"))
+        if (stackFrames == null || stackFrames.All(it => it.GetMethod().DeclaringType?.Name != "GameProcess"))
         {
 #if DEBUG
             MelonLogger.Msg("[FixLongMusicRestart] IsLong called outside GameProcess, returning true.");
 #endif
             return true;
         }
-        __result = false;
+
+        result = false;
         return false;
     }
+
+    private static MethodBase TargetMethod() => AccessTools.Method(typeof(DataManager), "IsLong");
 }

@@ -43,13 +43,13 @@ public class CustomIntroCinematic
     [ConfigEntry(name: "仅在未玩过乐曲时播放",
         zh: "开启后，仅当 1P 2P 双方均没有玩过这首乐曲时播放开场视频",
         en: "Only play the intro cinematic when both players have not played the song")]
-    private static readonly bool onlyPlayWhenNotPlayed = false;
+    private static readonly bool OnlyPlayWhenNotPlayed = false;
 
 
-    private static bool _isInitialized = false;
+    private static bool _isInitialized;
 
-    private static Dictionary<int, (string leftPath, string rightPath, string acbPath, string awbPath)> _targetIDMovieDict = new Dictionary<int, (string leftPath, string rightPath, string acbPath, string awbPath)>();
-
+    private static Dictionary<int, (string leftPath, string rightPath, string acbPath, string awbPath)>
+        _targetIdMovieDict = new();
 
 
     [HarmonyPrepare]
@@ -57,7 +57,7 @@ public class CustomIntroCinematic
     {
         if (_isInitialized) return true;
 
-        HashSet<int> _targetMusicIds = new HashSet<int>();
+        HashSet<int> targetMusicIds = new HashSet<int>();
 
         // 解析视频文件夹路径
         string resolvedDir = FileSystem.ResolvePath(IntroMovieDir.Trim());
@@ -99,7 +99,7 @@ public class CustomIntroCinematic
                 continue;
 
             // 添加到目标乐曲ID集合
-            _targetMusicIds.Add(musicId);
+            targetMusicIds.Add(musicId);
 
             // 检查文件类型
             string fileType = "single"; // 默认单文件
@@ -121,6 +121,7 @@ public class CustomIntroCinematic
             {
                 tempVideoDict[musicId] = new List<(string path, string type)>();
             }
+
             tempVideoDict[musicId].Add((filePath, fileType));
         }
 
@@ -145,7 +146,7 @@ public class CustomIntroCinematic
                 continue;
 
             // 添加到目标乐曲ID集合
-            _targetMusicIds.Add(musicId);
+            targetMusicIds.Add(musicId);
 
             // 检查文件类型
             string fileType = Path.GetExtension(filePath).ToLower();
@@ -157,6 +158,7 @@ public class CustomIntroCinematic
             {
                 tempAudioDict[musicId] = new List<(string path, string type)>();
             }
+
             tempAudioDict[musicId].Add((filePath, fileType));
         }
 
@@ -171,8 +173,8 @@ public class CustomIntroCinematic
             int leftCount = videoList.Count(v => v.type == "l");
             int rightCount = videoList.Count(v => v.type == "r");
 
-            string leftPath = null;
-            string rightPath = null;
+            string leftPath;
+            string rightPath;
 
             // 有single文件，并且没有l/r文件
             if (singleCount == 1 && leftCount == 0 && rightCount == 0)
@@ -192,7 +194,8 @@ public class CustomIntroCinematic
             else
             {
                 // 其他情况都不合法
-                MelonLogger.Msg($"[CustomIntroCinematic] Invalid video configuration for music {musicId}: must have either single file or both l and r files");
+                MelonLogger.Msg(
+                    $"[CustomIntroCinematic] Invalid video configuration for music {musicId}: must have either single file or both l and r files");
                 continue;
             }
 
@@ -214,53 +217,156 @@ public class CustomIntroCinematic
                 }
                 else
                 {
-                    MelonLogger.Msg($"[CustomIntroCinematic] Invalid audio configuration for music {musicId}: must have exactly one acb and one awb file");
+                    MelonLogger.Msg(
+                        $"[CustomIntroCinematic] Invalid audio configuration for music {musicId}: must have exactly one acb and one awb file");
                 }
             }
 
             // 添加到最终字典
-            _targetIDMovieDict[musicId] = (leftPath, rightPath, acbPath, awbPath);
+            _targetIdMovieDict[musicId] = (leftPath, rightPath, acbPath, awbPath);
         }
 
         // 检查是否有目标音乐ID没有对应的视频文件
-        foreach (var musicId in _targetMusicIds)
+        foreach (var musicId in targetMusicIds)
         {
-            if (!_targetIDMovieDict.ContainsKey(musicId))
+            if (!_targetIdMovieDict.ContainsKey(musicId))
             {
                 MelonLogger.Msg($"[CustomIntroCinematic] Files not found or invalid for music {musicId}");
             }
         }
 
-        MelonLogger.Msg($"[CustomIntroCinematic] Initialized with {_targetIDMovieDict.Count} songs.");
+        MelonLogger.Msg($"[CustomIntroCinematic] Initialized with {_targetIdMovieDict.Count} songs.");
         _isInitialized = true;
         return true;
     }
 
+    private static bool GetIsLong(MusicData music)
+    {
+        try
+        {
+            var dataManager = Singleton<DataManager>.Instance;
+            var isLongMethod = AccessTools.Method(typeof(DataManager), "IsLong", [music.GetType()]);
+            if (isLongMethod != null)
+            {
+                return (bool)(isLongMethod.Invoke(dataManager, [music]) ?? false);
+            }
 
+            var longField = AccessTools.Field(music.GetType(), "longMusic") ??
+                            AccessTools.Field(music.GetType(), "LongMusic");
+            if (longField != null)
+            {
+                return (bool)(longField.GetValue(music) ?? false);
+            }
 
+            var longProp = AccessTools.Property(music.GetType(), "longMusic") ??
+                           AccessTools.Property(music.GetType(), "LongMusic");
+            if (longProp?.GetMethod != null)
+            {
+                return (bool)(longProp.GetValue(music) ?? false);
+            }
+        }
+        catch (Exception e)
+        {
+            MelonLogger.Msg($"[CustomIntroCinematic] GetIsLong failed: {e}");
+        }
 
+        return false;
+    }
 
+    private static MessageMusicData CreateMessageMusicData(ProcessDataContainer container, MusicData music,
+        int difficultyIndex, int musicLevelId, object scoreKind)
+    {
+        try
+        {
+            var jacket = container.assetManager.GetJacketTexture2D(music.jacketFile);
+            var strings = new Queue<string>(new[]
+            {
+                music.name.str,
+                Convert.ToString(music.utageKanjiName),
+                Convert.ToString(music.utagePlayStyle)
+            });
+            var ints = new Queue<int>(
+                new[] { music.GetID(), difficultyIndex, musicLevelId, Convert.ToInt32(scoreKind) });
+            var isLong = GetIsLong(music);
 
+            foreach (var ctor in typeof(MessageMusicData).GetConstructors()
+                         .OrderByDescending(c => c.GetParameters().Length))
+            {
+                var ps = ctor.GetParameters();
+                var args = new object[ps.Length];
+                var stringCopy = new Queue<string>(strings);
+                var intCopy = new Queue<int>(ints);
 
+                for (var i = 0; i < ps.Length; i++)
+                {
+                    var p = ps[i];
+                    if (p.ParameterType == typeof(Texture2D))
+                    {
+                        args[i] = jacket;
+                        continue;
+                    }
 
+                    if (p.ParameterType == typeof(string))
+                    {
+                        args[i] = stringCopy.Count > 0 ? stringCopy.Dequeue() : string.Empty;
+                        continue;
+                    }
 
+                    if (p.ParameterType == typeof(bool))
+                    {
+                        args[i] = isLong;
+                        continue;
+                    }
 
+                    if (p.ParameterType == typeof(int))
+                    {
+                        args[i] = intCopy.Count > 0 ? intCopy.Dequeue() : 0;
+                        continue;
+                    }
 
+                    if (p.ParameterType.IsEnum && intCopy.Count > 0)
+                    {
+                        args[i] = Enum.ToObject(p.ParameterType, intCopy.Dequeue());
+                        continue;
+                    }
 
+                    args[i] = p.HasDefaultValue
+                        ? p.DefaultValue
+                        : (p.ParameterType.IsValueType ? Activator.CreateInstance(p.ParameterType) : null);
+                }
 
+                try
+                {
+                    return (MessageMusicData)ctor.Invoke(args);
+                }
+                catch
+                {
+                    // Try next overload
+                }
+            }
+
+            MelonLogger.Msg("[CustomIntroCinematic] No suitable MessageMusicData constructor found");
+        }
+        catch (Exception e)
+        {
+            MelonLogger.Msg($"[CustomIntroCinematic] CreateMessageMusicData failed: {e}");
+        }
+
+        return null;
+    }
 
 
     public class SimpleMovieTrackStartProcess : ProcessBase
     {
         private enum SimpleMovieState
         {
-            StartWait,      // 等待淡入完成阶段
-            VideoPrepare,   // 视频准备阶段  
-            VideoPlay,      // 视频播放阶段
-            VideoEnd,       // 视频结束阶段
-            EndWait,        // 视频结束后的等待阶段（等待1秒再进入Release）
-            Release,        // 释放资源阶段
-            Released        // 完成阶段
+            StartWait, // 等待淡入完成阶段
+            VideoPrepare, // 视频准备阶段  
+            VideoPlay, // 视频播放阶段
+            VideoEnd, // 视频结束阶段
+            EndWait, // 视频结束后的等待阶段（等待1秒再进入Release）
+            Release, // 释放资源阶段
+            Released // 完成阶段
         }
 
         private SimpleMovieState _state;
@@ -281,7 +387,8 @@ public class CustomIntroCinematic
         private string _awbFilePath;
         private bool _isAudioPrepared;
 
-        public SimpleMovieTrackStartProcess(ProcessDataContainer dataContainer, (string leftPath, string rightPath, string acbPath, string awbPath) videoPaths)
+        public SimpleMovieTrackStartProcess(ProcessDataContainer dataContainer,
+            (string leftPath, string rightPath, string acbPath, string awbPath) videoPaths)
             : base(dataContainer)
         {
             _videoFilePathLeft = videoPaths.leftPath;
@@ -315,12 +422,15 @@ public class CustomIntroCinematic
                 // 隐藏普通背景
                 var containerField = typeof(ProcessBase).GetField("container",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                var container = (ProcessDataContainer)containerField.GetValue(this);
+                if (containerField == null) throw new MissingFieldException("ProcessBase.container not found");
+                var processContainer = (ProcessDataContainer)containerField.GetValue(this);
+                if (processContainer == null) throw new NullReferenceException("ProcessDataContainer is null");
 
                 for (int i = 0; i < 2; i++)
                 {
                     // SetBackGroundDisp()
-                    container.processManager.SendMessage(new Message(ProcessType.CommonProcess, 50004, i, false));
+                    processContainer.processManager.SendMessage(new Message(ProcessType.CommonProcess, 50004, i,
+                        false));
                 }
 
                 // 复刻 TrackStartProcess.OnStart() 的副屏控制逻辑
@@ -331,15 +441,21 @@ public class CustomIntroCinematic
                         int num = GameManager.SelectMusicID[l];
                         int num2 = GameManager.SelectDifficultyID[l];
                         MusicData music = Singleton<DataManager>.Instance.GetMusic(num);
-                        Notes notes = null;
-                        MusicDifficultyID musicDifficultyID = (MusicDifficultyID)num2;
-                        int musicLevelID = (((uint)musicDifficultyID > 4u) ? Singleton<DataManager>.Instance.GetMusic(num).notesData[0] : Singleton<DataManager>.Instance.GetMusic(num).notesData[num2]).musicLevelID;
-                        MessageMusicData messageMusicData = new MessageMusicData(container.assetManager.GetJacketTexture2D(music.jacketFile), music.name.str, music.utageKanjiName, music.utagePlayStyle, music.GetID(), num2, musicLevelID, GameManager.GetScoreKind(num), Singleton<DataManager>.Instance.IsLong(music.longMusic));
-                        container.processManager.SendMessage(new Message(ProcessType.CommonProcess, 20002, l, messageMusicData));
+                        MusicDifficultyID musicDifficultyId = (MusicDifficultyID)num2;
+                        int musicLevelId =
+                            (((uint)musicDifficultyId > 4u)
+                                ? Singleton<DataManager>.Instance.GetMusic(num).notesData[0]
+                                : Singleton<DataManager>.Instance.GetMusic(num).notesData[num2]).musicLevelID;
+                        var messageMusicData = CreateMessageMusicData(processContainer, music, num2, musicLevelId,
+                            GameManager.GetScoreKind(num));
+                        processContainer.processManager.SendMessage(new Message(ProcessType.CommonProcess, 20002, l,
+                            messageMusicData));
                     }
-                    container.processManager.SendMessage(new Message(ProcessType.CommonProcess, 50016, l));
+
+                    processContainer.processManager.SendMessage(new Message(ProcessType.CommonProcess, 50016, l));
                 }
-                container.processManager.SendMessage(new Message(ProcessType.CommonProcess, 30001));
+
+                processContainer.processManager.SendMessage(new Message(ProcessType.CommonProcess, 30001));
 
 
                 // 准备音频（如果有）
@@ -347,7 +463,8 @@ public class CustomIntroCinematic
                 {
                     // 使用SoundManager准备音频文件
                     // 需要提供不带扩展名的基本路径
-                    string audioBasePath = Path.Combine(Path.GetDirectoryName(_acbFilePath), Path.GetFileNameWithoutExtension(_acbFilePath));
+                    var dir = Path.GetDirectoryName(_acbFilePath) ?? string.Empty;
+                    string audioBasePath = Path.Combine(dir, Path.GetFileNameWithoutExtension(_acbFilePath));
                     _isAudioPrepared = SoundManager.MusicPrepareForFileName(audioBasePath);
                     if (_isAudioPrepared)
                     {
@@ -400,6 +517,7 @@ public class CustomIntroCinematic
                         {
                             _startWaitTimer += Time.deltaTime;
                         }
+
                         break;
 
                     case SimpleMovieState.VideoPrepare:
@@ -414,6 +532,7 @@ public class CustomIntroCinematic
                                     _movieSprites[0].color = Color.white;
                                     _movieSprites[0].enabled = true;
                                 }
+
                                 if (_movieSprites[1] != null)
                                 {
                                     _movieSprites[1].color = Color.white;
@@ -422,7 +541,8 @@ public class CustomIntroCinematic
                             }
                             catch (Exception e)
                             {
-                                MelonLogger.Msg($"[CustomIntroCinematic] OnUpdate.VideoPrepare: Error enabling movie sprites: {e}");
+                                MelonLogger.Msg(
+                                    $"[CustomIntroCinematic] OnUpdate.VideoPrepare: Error enabling movie sprites: {e}");
                             }
 
                             _state = SimpleMovieState.VideoPlay;
@@ -452,6 +572,7 @@ public class CustomIntroCinematic
                         {
                             _videoTimer += Time.deltaTime;
                         }
+
                         break;
 
                     case SimpleMovieState.VideoPlay:
@@ -460,17 +581,21 @@ public class CustomIntroCinematic
                         try
                         {
                             if (!_videoPlayers[0].isPlaying)
-                                if (_movieSprites[0] != null) _movieSprites[0].enabled = false;
+                                if (_movieSprites[0] != null)
+                                    _movieSprites[0].enabled = false;
                             if (!_videoPlayers[1].isPlaying)
-                                if (_movieSprites[1] != null) _movieSprites[1].enabled = false;
+                                if (_movieSprites[1] != null)
+                                    _movieSprites[1].enabled = false;
                         }
                         catch (Exception e)
                         {
-                            MelonLogger.Msg($"[CustomIntroCinematic] OnUpdate.VideoPlay: Error disabling movie sprites on end: {e}");
+                            MelonLogger.Msg(
+                                $"[CustomIntroCinematic] OnUpdate.VideoPlay: Error disabling movie sprites on end: {e}");
                         }
 
                         // 检查视频是否结束（两个视频都结束了才认为全部结束）
-                        bool videoEnded = (!_videoPlayers[0].isPlaying && !_videoPlayers[1].isPlaying) || _videoTimer >= _videoDuration;
+                        bool videoEnded = (!_videoPlayers[0].isPlaying && !_videoPlayers[1].isPlaying) ||
+                                          _videoTimer >= _videoDuration;
                         // 如果有音频，还需要检查音频是否结束
                         bool audioEnded = !_isAudioPrepared || SoundManager.IsEndMusic();
 
@@ -483,6 +608,7 @@ public class CustomIntroCinematic
                         {
                             _videoTimer += Time.deltaTime;
                         }
+
                         break;
 
                     case SimpleMovieState.VideoEnd:
@@ -529,6 +655,7 @@ public class CustomIntroCinematic
                         {
                             _endWaitTimer += Time.deltaTime;
                         }
+
                         break;
 
                     case SimpleMovieState.Release:
@@ -538,11 +665,14 @@ public class CustomIntroCinematic
                         // 使用反射获取 container 字段
                         var containerField = typeof(ProcessBase).GetField("container",
                             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                        var container = (ProcessDataContainer)containerField.GetValue(this);
+                        if (containerField == null) throw new MissingFieldException("ProcessBase.container not found");
+                        var processContainer = (ProcessDataContainer)containerField.GetValue(this);
+                        if (processContainer == null) throw new NullReferenceException("ProcessDataContainer is null");
 
-                        container.processManager.AddProcess(
-                            new FadeProcess(container, this, new GameProcess(container), FadeProcess.FadeType.Type3), 50);
-                        container.processManager.SetVisibleTimers(isVisible: false);
+                        processContainer.processManager.AddProcess(
+                            new FadeProcess(processContainer, this, new GameProcess(processContainer),
+                                FadeProcess.FadeType.Type3));
+                        processContainer.processManager.SetVisibleTimers(isVisible: false);
                         break;
 
                     case SimpleMovieState.Released:
@@ -562,14 +692,14 @@ public class CustomIntroCinematic
             try
             {
                 // 检查视频文件是否存在
-                if (!System.IO.File.Exists(_videoFilePathLeft))
+                if (!File.Exists(_videoFilePathLeft))
                 {
                     MelonLogger.Msg($"[CustomIntroCinematic] Left video file not found: {_videoFilePathLeft}");
                     _isVideoPrepareError = true;
                     return;
                 }
 
-                if (!System.IO.File.Exists(_videoFilePathRight))
+                if (!File.Exists(_videoFilePathRight))
                 {
                     MelonLogger.Msg($"[CustomIntroCinematic] Right video file not found: {_videoFilePathRight}");
                     _isVideoPrepareError = true;
@@ -587,11 +717,13 @@ public class CustomIntroCinematic
 
                 var containerField = typeof(ProcessBase).GetField("container",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                var container = (ProcessDataContainer)containerField.GetValue(this);
+                if (containerField == null) throw new MissingFieldException("ProcessBase.container not found");
+                var processContainer = (ProcessDataContainer)containerField.GetValue(this);
+                if (processContainer == null) throw new NullReferenceException("ProcessDataContainer is null");
 
                 // 创建左右两个monitor实例
-                var leftMonitor = UnityEngine.Object.Instantiate(prefs, container.LeftMonitor);
-                var rightMonitor = UnityEngine.Object.Instantiate(prefs, container.RightMonitor);
+                var leftMonitor = UnityEngine.Object.Instantiate(prefs, processContainer.LeftMonitor);
+                var rightMonitor = UnityEngine.Object.Instantiate(prefs, processContainer.RightMonitor);
 
                 // 保存Monitor GameObject引用以便后续销毁
                 _monitorObjects[0] = leftMonitor;
@@ -631,13 +763,17 @@ public class CustomIntroCinematic
                 rightMonitorComp.Initialize(1, true);
 
                 // 获取movieMaskObj
-                var leftMovieMaskField = typeof(Monitor.MovieTrackStart.MovieTrackStartMonitor).GetField("_movieMaskObj",
+                var leftMovieMaskField = typeof(Monitor.MovieTrackStart.MovieTrackStartMonitor).GetField(
+                    "_movieMaskObj",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                var rightMovieMaskField = typeof(Monitor.MovieTrackStart.MovieTrackStartMonitor).GetField("_movieMaskObj",
+                var rightMovieMaskField = typeof(Monitor.MovieTrackStart.MovieTrackStartMonitor).GetField(
+                    "_movieMaskObj",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-                var leftMovieMaskObj = (GameObject)leftMovieMaskField.GetValue(leftMonitorComp);
-                var rightMovieMaskObj = (GameObject)rightMovieMaskField.GetValue(rightMonitorComp);
+                var leftMovieMaskObj = leftMovieMaskField?.GetValue(leftMonitorComp) as GameObject ??
+                                       throw new NullReferenceException("leftMovieMaskObj is null");
+                var rightMovieMaskObj = rightMovieMaskField?.GetValue(rightMonitorComp) as GameObject ??
+                                        throw new NullReferenceException("rightMovieMaskObj is null");
 
                 if (leftMovieMaskObj == null || rightMovieMaskObj == null)
                 {
@@ -673,8 +809,10 @@ public class CustomIntroCinematic
                 var rightMovieField = typeof(Monitor.MovieTrackStart.MovieTrackStartMonitor).GetField("_movieSprite",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
 
-                var leftMovieSprite = (SpriteRenderer)leftMovieField.GetValue(leftMonitorComp);
-                var rightMovieSprite = (SpriteRenderer)rightMovieField.GetValue(rightMonitorComp);
+                var leftMovieSprite = leftMovieField?.GetValue(leftMonitorComp) as SpriteRenderer ??
+                                      throw new NullReferenceException("leftMovieSprite is null");
+                var rightMovieSprite = rightMovieField?.GetValue(rightMonitorComp) as SpriteRenderer ??
+                                       throw new NullReferenceException("rightMovieSprite is null");
 
                 if (leftMovieSprite != null && rightMovieSprite != null)
                 {
@@ -724,7 +862,8 @@ public class CustomIntroCinematic
 
                         _isVideoPrepared[0] = true;
                         _isVideoPrepared[1] = true;
-                        _videoDuration = Mathf.Max((float)_videoPlayers[0].length, (float)_videoPlayers[1].length); // 取较长的时长
+                        _videoDuration =
+                            Mathf.Max((float)_videoPlayers[0].length, (float)_videoPlayers[1].length); // 取较长的时长
 
                         // 设置视频尺寸
                         var leftHeight = _videoPlayers[0].height;
@@ -758,13 +897,16 @@ public class CustomIntroCinematic
                         }
 
                         // 调用SetMovieSize方法设置视频尺寸
-                        var setMovieSizeMethod = typeof(Monitor.MovieTrackStart.MovieTrackStartMonitor).GetMethod("SetMovieSize",
+                        var setMovieSizeMethod = typeof(Monitor.MovieTrackStart.MovieTrackStartMonitor).GetMethod(
+                            "SetMovieSize",
                             System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
 
                         if (setMovieSizeMethod != null)
                         {
-                            setMovieSizeMethod.Invoke(leftMonitorComp, new object[] { leftDisplayHeight, leftDisplayWidth });
-                            setMovieSizeMethod.Invoke(rightMonitorComp, new object[] { rightDisplayHeight, rightDisplayWidth });
+                            setMovieSizeMethod.Invoke(leftMonitorComp,
+                                new object[] { leftDisplayHeight, leftDisplayWidth });
+                            setMovieSizeMethod.Invoke(rightMonitorComp,
+                                new object[] { rightDisplayHeight, rightDisplayWidth });
                             //MelonLogger.Msg($"[CustomIntroCinematic] Set video sizes: left={leftDisplayWidth}x{leftDisplayHeight}, right={rightDisplayWidth}x{rightDisplayHeight}");
                         }
 
@@ -772,24 +914,18 @@ public class CustomIntroCinematic
                     }
                 };
 
-                _videoPlayers[0].prepareCompleted += (source) =>
-                {
-                    onVideoPrepared();
-                };
+                _videoPlayers[0].prepareCompleted += _ => { onVideoPrepared(); };
 
-                _videoPlayers[1].prepareCompleted += (source) =>
-                {
-                    onVideoPrepared();
-                };
+                _videoPlayers[1].prepareCompleted += _ => { onVideoPrepared(); };
 
                 // 设置错误回调
-                _videoPlayers[0].errorReceived += (source, message) =>
+                _videoPlayers[0].errorReceived += (_, message) =>
                 {
                     MelonLogger.Msg($"[CustomIntroCinematic] Left video player error: {message}");
                     _isVideoPrepareError = true;
                 };
 
-                _videoPlayers[1].errorReceived += (source, message) =>
+                _videoPlayers[1].errorReceived += (_, message) =>
                 {
                     MelonLogger.Msg($"[CustomIntroCinematic] Right video player error: {message}");
                     _isVideoPrepareError = true;
@@ -828,7 +964,7 @@ public class CustomIntroCinematic
 
                 // 直接进入乐曲
                 container.processManager.AddProcess(
-                    new FadeProcess(container, this, new GameProcess(container), FadeProcess.FadeType.Type3), 50);
+                    new FadeProcess(container, this, new GameProcess(container), FadeProcess.FadeType.Type3));
                 container.processManager.SetVisibleTimers(isVisible: false);
                 container.processManager.ReleaseProcess(this);
             }
@@ -897,7 +1033,10 @@ public class CustomIntroCinematic
                         _movieSprites[i] = null;
                     }
                 }
-                catch { }
+                catch (Exception ex)
+                {
+                    MelonLogger.Error($"[CustomIntroCinematic] cleanup error: {ex}");
+                }
             }
         }
     }
@@ -905,7 +1044,7 @@ public class CustomIntroCinematic
 
     [HarmonyPrefix]
     [HarmonyPatch(typeof(MusicSelectProcess), "GameStart")]
-    public static bool GameStartPrefix(MusicSelectProcess __instance)
+    public static bool GameStartPrefix(MusicSelectProcess instance)
     {
         try
         {
@@ -920,20 +1059,21 @@ public class CustomIntroCinematic
             if (GameManager.IsFreedomMode) return true;
 
             // 仅在 Normal 模式下生效
-            if (!GameManager.IsNormalMode) return true;
+            if (!Shim.GameManagerIsNormalMode) return true;
 
             // 试玩模式不生效
             if (GameManager.IsTrialPlay) return true;
 
             // 联机对战不生效
-            Manager.Party.Party.IManager PartyManager = Manager.Party.Party.Party.Get();
-            if (SingletonStateMachine<AmManager, AmManager.EState>.Instance.Backup.gameSetting.MachineGroupID != DB.MachineGroupID.OFF && PartyManager != null && PartyManager.IsJoinAndActive())
+            Manager.Party.Party.IManager partyManager = Manager.Party.Party.Party.Get();
+            if (SingletonStateMachine<AmManager, AmManager.EState>.Instance.Backup.gameSetting.MachineGroupID !=
+                DB.MachineGroupID.OFF && partyManager != null && partyManager.IsJoinAndActive())
                 return true;
-            
+
             //获取曲目ID
             var musicId = GameManager.SelectMusicID[0];
 
-            if (onlyPlayWhenNotPlayed)
+            if (OnlyPlayWhenNotPlayed)
             {
                 //任一玩家拥有曲目成绩时不生效
                 for (int i = 0; i < 4; ++i)
@@ -952,20 +1092,22 @@ public class CustomIntroCinematic
             }
 
             // 检查当前选择的歌曲是否为目标歌曲
-            if (_targetIDMovieDict.TryGetValue(musicId, out var videoPath))
+            if (_targetIdMovieDict.TryGetValue(musicId, out var videoPath))
             {
                 MelonLogger.Msg($"[CustomIntroCinematic] Play intro cinematic for music {musicId}");
 
                 // 使用反射获取 MusicSelectProcess 的 container 字段
                 var containerField = typeof(ProcessBase).GetField("container",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
-                var container = (ProcessDataContainer)containerField.GetValue(__instance);
+                if (containerField == null) throw new MissingFieldException("ProcessBase.container not found");
+                var processContainer = (ProcessDataContainer)containerField.GetValue(instance);
+                if (processContainer == null) throw new NullReferenceException("ProcessDataContainer is null");
 
                 // 使用自定义的 SimpleMovieTrackStartProcess 替换 TrackStartProcess
-                container.processManager.AddProcess(
-                    new FadeProcess(container, __instance,
-                        new SimpleMovieTrackStartProcess(container, videoPath),
-                        releaseCustomMaterial: false), 50);
+                processContainer.processManager.AddProcess(
+                    new FadeProcess(processContainer, instance,
+                        new SimpleMovieTrackStartProcess(processContainer, videoPath),
+                        FadeProcess.FadeType.Type3));
 
                 SoundManager.PreviewEnd();
                 SoundManager.StopBGM(2);
@@ -980,5 +1122,4 @@ public class CustomIntroCinematic
 
         return true; // 正常执行原方法
     }
-
 }

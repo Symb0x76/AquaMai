@@ -13,7 +13,8 @@ namespace AquaMai.Mods.Fancy.GamePlay;
 
 [ConfigSection(
     name: "修复非 C 区 Hold",
-    en: "Enable the game to correctly judge Touch Hold outside the C zone. Experimental implementation, reported to be unstable",
+    en:
+    "Enable the game to correctly judge Touch Hold outside the C zone. Experimental implementation, reported to be unstable",
     zh: "使游戏可以正常判定非 C 区的 Touch Hold。实验性实现，据反馈不稳定"
 )]
 [EnableGameVersion(23000, 25699)]
@@ -229,7 +230,7 @@ public class FixJudgeTouchHoldInNormalArea
             switch (touchAreaValue)
             {
                 case 0: // TouchSensorType.B
-                    touchPush = InputManager.InGameTouchPanelArea_B_Push(monitorId, buttonId);
+                    touchPush = InvokeTouchPanelAreaBPush(monitorId, buttonId);
                     // MelonLogger.Msg($"TouchSensorType.B - TouchPush: {touchPush}");
                     break;
                 case 1: // TouchSensorType.C
@@ -262,5 +263,18 @@ public class FixJudgeTouchHoldInNormalArea
             MelonLogger.Error($"Error in CustomTouchPush: {ex}");
             return InputManager.InGameTouchPanelArea_C_Push(monitorId);
         }
+    }
+
+    private static bool InvokeTouchPanelAreaBPush(int monitorId, InputManager.ButtonSetting buttonId)
+    {
+        var method = AccessTools.Method(typeof(InputManager), "InGameTouchPanelArea_B_Push",
+            [typeof(int), typeof(InputManager.ButtonSetting)]);
+        if (method != null)
+        {
+            return (bool)(method.Invoke(null, new object[] { monitorId, buttonId }) ?? false);
+        }
+
+        MelonLogger.Warning("InGameTouchPanelArea_B_Push not found, falling back to C_Push");
+        return InputManager.InGameTouchPanelArea_C_Push(monitorId);
     }
 }

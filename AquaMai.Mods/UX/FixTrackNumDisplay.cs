@@ -1,6 +1,7 @@
 using System;
 using AquaMai.Config.Attributes;
 using AquaMai.Core.Attributes;
+using AquaMai.Core.Helpers;
 using HarmonyLib;
 using Manager;
 using MelonLoader;
@@ -114,7 +115,7 @@ public class FixTrackNumDisplay
     {
         if (!isInitialized) return true;
         if (currentTrackNum < 1) return true;
-        if (!GameManager.IsNormalMode) return true; // 仅在普通模式下生效
+        if (!Shim.GameManagerIsNormalMode) return true; // 仅在普通模式下生效
 
 
 

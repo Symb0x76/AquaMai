@@ -20,7 +20,7 @@ public static class Shim
 {
     private static T Iife<T>(Func<T> func) => func();
 
-    public static readonly string apiSuffix = Iife(() =>
+    public static readonly string ApiSuffix = Iife(() =>
     {
         try
         {
@@ -45,20 +45,20 @@ public static class Shim
 
     [HarmonyTranspiler]
     [HarmonyPatch(typeof(NetHttpClient), "ReadCallback")]
-    public static IEnumerable<CodeInstruction> NetHttpClientReadCallbackTranspiler(IEnumerable<CodeInstruction> instructions)
+    public static IEnumerable<CodeInstruction> NetHttpClientReadCallbackTranspiler(
+        IEnumerable<CodeInstruction> instructions)
     {
         var instList = instructions.ToList();
         NetHttpClientDecryptsResponse = instList.Any(inst =>
             inst.opcode == OpCodes.Callvirt &&
-            inst.operand is MethodInfo method &&
-            method.Name == "Decrypt");
+            inst.operand is MethodInfo { Name: "Decrypt" });
         return instList; // No changes
     }
 
     public static string RemoveApiSuffix(string api)
     {
-        return !string.IsNullOrEmpty(apiSuffix) && api.EndsWith(apiSuffix)
-            ? api.Substring(0, api.Length - apiSuffix.Length)
+        return !string.IsNullOrEmpty(ApiSuffix) && api.EndsWith(ApiSuffix)
+            ? api.Substring(0, api.Length - ApiSuffix.Length)
             : api;
     }
 
@@ -70,6 +70,7 @@ public static class Shim
             MelonLogger.Warning("No matching Net.CipherAES class found");
             return encrypted;
         }
+
         var methods = type.GetMethods();
         var method = methods.FirstOrDefault(it => it.Name == "Decrypt" && it.GetParameters().Length <= 2);
         if (method == null)
@@ -78,6 +79,7 @@ public static class Shim
             // Assume encryption code is removed.
             return encrypted;
         }
+
         if (method.GetParameters().Length == 1)
         {
             return (byte[])method.Invoke(null, [encrypted]);
@@ -107,6 +109,7 @@ public static class Shim
             // Assume encryption code is removed.
             return data;
         }
+
         if (method.GetParameters().Length == 1)
         {
             return (byte[])method.Invoke(null, [data]);
@@ -134,45 +137,55 @@ public static class Shim
         var tGetAccessToken = tOperationManager.Method("GetAccessToken", [typeof(int)]);
         if (!tGetAccessToken.MethodExists())
         {
-            return (index) => throw new MissingMethodException("No matching OperationManager.GetAccessToken() method found");
+            return _ => throw new MissingMethodException("No matching OperationManager.GetAccessToken() method found");
         }
+
         return (index) => tGetAccessToken.GetValue<string>(index);
     });
 
-    public delegate PacketUploadUserPlaylog PacketUploadUserPlaylogCreator(int index, UserData src, int trackNo, Action<int> onDone, Action<PacketStatus> onError = null);
+    public delegate PacketUploadUserPlaylog PacketUploadUserPlaylogCreator(int index, UserData src, int trackNo,
+        Action<int> onDone, Action<PacketStatus> onError = null);
 
-    public static readonly PacketUploadUserPlaylogCreator CreatePacketUploadUserPlaylog = Iife<PacketUploadUserPlaylogCreator>(() =>
-    {
-        var type = typeof(PacketUploadUserPlaylog);
-        if (type.GetConstructor([typeof(int), typeof(UserData), typeof(int), typeof(Action<int>), typeof(Action<PacketStatus>)]) is ConstructorInfo ctor1)
+    public static readonly PacketUploadUserPlaylogCreator CreatePacketUploadUserPlaylog =
+        Iife<PacketUploadUserPlaylogCreator>(() =>
         {
-            return (index, src, trackNo, onDone, onError) =>
+            var type = typeof(PacketUploadUserPlaylog);
+            if (type.GetConstructor([
+                    typeof(int), typeof(UserData), typeof(int), typeof(Action<int>), typeof(Action<PacketStatus>)
+                ]) is { } ctor1)
             {
-                var args = new object[] { index, src, trackNo, onDone, onError };
-                return (PacketUploadUserPlaylog)ctor1.Invoke(args);
-            };
-        }
-        else if (type.GetConstructor([typeof(int), typeof(UserData), typeof(int), typeof(string), typeof(Action<int>), typeof(Action<PacketStatus>)]) is ConstructorInfo ctor2)
-        {
-            return (index, src, trackNo, onDone, onError) =>
+                return (index, src, trackNo, onDone, onError) =>
+                {
+                    var args = new object[] { index, src, trackNo, onDone, onError };
+                    return (PacketUploadUserPlaylog)ctor1.Invoke(args);
+                };
+            }
+            else if (type.GetConstructor([
+                         typeof(int), typeof(UserData), typeof(int), typeof(string), typeof(Action<int>),
+                         typeof(Action<PacketStatus>)
+                     ]) is { } ctor2)
             {
-                var accessToken = GetAccessToken(index);
-                var args = new object[] { index, src, trackNo, accessToken, onDone, onError };
-                return (PacketUploadUserPlaylog)ctor2.Invoke(args);
-            };
-        }
-        else
-        {
-            throw new MissingMethodException("No matching PacketUploadUserPlaylog constructor found");
-        }
-    });
+                return (index, src, trackNo, onDone, onError) =>
+                {
+                    var accessToken = GetAccessToken(index);
+                    var args = new object[] { index, src, trackNo, accessToken, onDone, onError };
+                    return (PacketUploadUserPlaylog)ctor2.Invoke(args);
+                };
+            }
+            else
+            {
+                throw new MissingMethodException("No matching PacketUploadUserPlaylog constructor found");
+            }
+        });
 
-    public delegate PacketUpsertUserAll PacketUpsertUserAllCreator(int index, UserData src, Action<int> onDone, Action<PacketStatus> onError = null);
+    public delegate PacketUpsertUserAll PacketUpsertUserAllCreator(int index, UserData src, Action<int> onDone,
+        Action<PacketStatus> onError = null);
 
     public static readonly PacketUpsertUserAllCreator CreatePacketUpsertUserAll = Iife<PacketUpsertUserAllCreator>(() =>
     {
         var type = typeof(PacketUpsertUserAll);
-        if (type.GetConstructor([typeof(int), typeof(UserData), typeof(Action<int>), typeof(Action<PacketStatus>)]) is ConstructorInfo ctor1)
+        if (type.GetConstructor([typeof(int), typeof(UserData), typeof(Action<int>), typeof(Action<PacketStatus>)]) is
+            { } ctor1)
         {
             return (index, src, onDone, onError) =>
             {
@@ -180,7 +193,9 @@ public static class Shim
                 return (PacketUpsertUserAll)ctor1.Invoke(args);
             };
         }
-        else if (type.GetConstructor([typeof(int), typeof(UserData), typeof(string), typeof(Action<int>), typeof(Action<PacketStatus>)]) is ConstructorInfo ctor2)
+        else if (type.GetConstructor([
+                     typeof(int), typeof(UserData), typeof(string), typeof(Action<int>), typeof(Action<PacketStatus>)
+                 ]) is { } ctor2)
         {
             return (index, src, onDone, onError) =>
             {
@@ -202,34 +217,78 @@ public static class Shim
         var tScoreList = tUserData.Property("ScoreList");
         if (tScoreList.PropertyExists())
         {
-            return tScoreList.GetValue<List<UserScore>[]>();
+            var scoreList = tScoreList.GetValue<List<UserScore>[]?>();
+            return scoreList?.Select(list => (IEnumerable<UserScore>)list).ToArray()
+                   ?? Array.Empty<IEnumerable<UserScore>>();
         }
 
         var tScoreDic = tUserData.Property("ScoreDic");
         if (tScoreDic.PropertyExists())
         {
-            var scoreDic = tScoreDic.GetValue<Dictionary<int, UserScore>[]>();
-            return scoreDic.Select(dic => dic.Values).ToArray();
+            var scoreDic = tScoreDic.GetValue<Dictionary<int, UserScore>[]?>();
+            return scoreDic?.Select(dic => (IEnumerable<UserScore>)dic.Values).ToArray()
+                   ?? Array.Empty<IEnumerable<UserScore>>();
         }
 
         throw new MissingFieldException("No matching UserData.ScoreList/ScoreDic found");
     }
 
-    private static ConstructorInfo UserRateCtor = typeof(UserRate).GetConstructors().First(it => it.GetParameters().Length is 4 or 5);
+    private static ConstructorInfo _userRateCtor =
+        typeof(UserRate).GetConstructors().First(it => it.GetParameters().Length is 4 or 5);
 
-    public static UserRate CreateUserRate(int musicId, int level, uint achievement, uint romVersion, PlayComboflagID comboflagID)
+    public static UserRate CreateUserRate(int musicId, int level, uint achievement, uint romVersion,
+        PlayComboflagID comboflagId)
     {
-        if (UserRateCtor.GetParameters().Length == 5)
+        if (_userRateCtor.GetParameters().Length == 5)
         {
-            return (UserRate)UserRateCtor.Invoke([musicId, level, achievement, romVersion, comboflagID]);
+            return (UserRate)_userRateCtor.Invoke([musicId, level, achievement, romVersion, comboflagId]);
         }
-        else
-        {
-            return (UserRate)UserRateCtor.Invoke([musicId, level, achievement, romVersion]);
-        }
+
+        return (UserRate)_userRateCtor.Invoke([musicId, level, achievement, romVersion]);
     }
 
-    public static readonly Action<bool> Set_GameManager_IsNormalMode = GameInfo.GameVersion < 25500 ? (_) => { } : (value) => { GameManager.IsNormalMode = value; };
-    private static readonly Func<bool> IsKaleidxScopeModeGetter = GameInfo.GameVersion < 25000 ? () => false : () => GameManager.IsKaleidxScopeMode;
+    private static bool _localIsNormalMode = true;
+    public static readonly Action<bool> SetGameManagerIsNormalMode = CreateSetGameManagerIsNormalMode();
+    private static readonly Func<bool> GameManagerIsNormalModeGetter = CreateGetGameManagerIsNormalMode();
+    public static bool GameManagerIsNormalMode => GameManagerIsNormalModeGetter();
+
+    private static Action<bool> CreateSetGameManagerIsNormalMode()
+    {
+        var property = AccessTools.Property(typeof(GameManager), "IsNormalMode");
+        if (property?.SetMethod != null)
+        {
+            return value => property.SetValue(null, value);
+        }
+
+        var field = AccessTools.Field(typeof(GameManager), "IsNormalMode");
+        if (field != null)
+        {
+            return value => field.SetValue(null, value);
+        }
+
+        MelonLogger.Warning("GameManager.IsNormalMode not found; using local fallback");
+        return value => _localIsNormalMode = value;
+    }
+
+    private static Func<bool> CreateGetGameManagerIsNormalMode()
+    {
+        var property = AccessTools.Property(typeof(GameManager), "IsNormalMode");
+        if (property?.GetMethod != null)
+        {
+            return () => (bool)(property.GetValue(null) ?? false);
+        }
+
+        var field = AccessTools.Field(typeof(GameManager), "IsNormalMode");
+        if (field != null)
+        {
+            return () => (bool)(field.GetValue(null) ?? false);
+        }
+
+        return () => _localIsNormalMode;
+    }
+
+    private static readonly Func<bool> IsKaleidxScopeModeGetter =
+        GameInfo.GameVersion < 25000 ? () => false : () => GameManager.IsKaleidxScopeMode;
+
     public static bool IsKaleidxScopeMode => IsKaleidxScopeModeGetter();
 }

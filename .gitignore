@@ -374,3 +374,7 @@ Output
 tools
 AquaMai/BuildInfo.g.cs
 .idea
+
+# Visual Studio Code stuff
+*.code-workspace
+.vscode/
