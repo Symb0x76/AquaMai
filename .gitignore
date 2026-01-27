@@ -378,3 +378,4 @@ AquaMai/BuildInfo.g.cs
 # Visual Studio Code stuff
 *.code-workspace
 .vscode/
+.sisyphus
