@@ -184,31 +184,93 @@ public static class Shim
     public static readonly PacketUpsertUserAllCreator CreatePacketUpsertUserAll = Iife<PacketUpsertUserAllCreator>(() =>
     {
         var type = typeof(PacketUpsertUserAll);
-        if (type.GetConstructor([typeof(int), typeof(UserData), typeof(Action<int>), typeof(Action<PacketStatus>)]) is
-            { } ctor1)
+        foreach (var ctor in type.GetConstructors(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance))
         {
-            return (index, src, onDone, onError) =>
+            if (TryCreatePacketUpsertUserAllFactory(ctor, out var factory))
             {
-                var args = new object[] { index, src, onDone, onError };
-                return (PacketUpsertUserAll)ctor1.Invoke(args);
-            };
+                return factory;
+            }
         }
-        else if (type.GetConstructor([
-                     typeof(int), typeof(UserData), typeof(string), typeof(Action<int>), typeof(Action<PacketStatus>)
-                 ]) is { } ctor2)
+
+        MelonLogger.Error("No usable PacketUpsertUserAll constructor found; upsert will be skipped.");
+        return (index, src, onDone, onError) =>
         {
-            return (index, src, onDone, onError) =>
-            {
-                var accessToken = GetAccessToken(index);
-                var args = new object[] { index, src, accessToken, onDone, onError };
-                return (PacketUpsertUserAll)ctor2.Invoke(args);
-            };
-        }
-        else
-        {
-            throw new MissingMethodException("No matching PacketUpsertUserAll constructor found");
-        }
+            MelonLogger.Error("PacketUpsertUserAll unavailable; skipping upsert.");
+            onError?.Invoke(default);
+            onDone?.Invoke(-1);
+            return null;
+        };
     });
+
+    private static bool TryCreatePacketUpsertUserAllFactory(ConstructorInfo ctor,
+        out PacketUpsertUserAllCreator factory)
+    {
+        var parameters = ctor.GetParameters();
+        factory = (index, src, onDone, onError) =>
+        {
+            var args = new object[parameters.Length];
+
+            for (var i = 0; i < parameters.Length; i++)
+            {
+                var p = parameters[i];
+                args[i] = p.ParameterType switch
+                {
+                    var t when t == typeof(int) => index,
+                    var t when t == typeof(UserData) => src,
+                    var t when t == typeof(string) => SafeGetAccessToken(index),
+                    var t when t == typeof(Action<int>) => onDone,
+                    var t when t == typeof(Action<PacketStatus>) => onError,
+                    _ when p.HasDefaultValue => p.DefaultValue,
+                    _ when p.ParameterType.IsValueType => Activator.CreateInstance(p.ParameterType),
+                    _ => null
+                };
+
+                if (args[i] == null && !p.HasDefaultValue && p.ParameterType.IsValueType)
+                {
+                    // Value types must not be null; constructor is incompatible.
+                    return null;
+                }
+            }
+
+            try
+            {
+                return (PacketUpsertUserAll)ctor.Invoke(args);
+            }
+            catch (Exception ex)
+            {
+                MelonLogger.Warning($"PacketUpsertUserAll ctor invoke failed ({ctor}): {ex.Message}");
+                return null;
+            }
+        };
+
+        // Prefer a factory where all parameters could be filled without using null for required reference types.
+        var hasUnmappedRequiredReference = parameters.Any(p =>
+            argsRequiredReferenceUnmapped(p.ParameterType, p.HasDefaultValue));
+
+        return !hasUnmappedRequiredReference;
+
+        bool argsRequiredReferenceUnmapped(System.Type type, bool hasDefault) =>
+            type != typeof(int) &&
+            type != typeof(UserData) &&
+            type != typeof(string) &&
+            type != typeof(Action<int>) &&
+            type != typeof(Action<PacketStatus>) &&
+            !hasDefault &&
+            !type.IsValueType;
+    }
+
+    private static string SafeGetAccessToken(int index)
+    {
+        try
+        {
+            return GetAccessToken(index);
+        }
+        catch (Exception e)
+        {
+            MelonLogger.Warning($"GetAccessToken failed: {e.Message}");
+            return null;
+        }
+    }
 
     public static IEnumerable<UserScore>[] GetUserScoreList(UserData userData)
     {
@@ -217,17 +279,16 @@ public static class Shim
         var tScoreList = tUserData.Property("ScoreList");
         if (tScoreList.PropertyExists())
         {
-            var scoreList = tScoreList.GetValue<List<UserScore>[]?>();
-            return scoreList?.Select(list => (IEnumerable<UserScore>)list).ToArray()
-                   ?? Array.Empty<IEnumerable<UserScore>>();
+            var scoreList = tScoreList.GetValue<List<UserScore>[]>() ?? Array.Empty<List<UserScore>>();
+            return scoreList.Select(list => (IEnumerable<UserScore>)list).ToArray();
         }
 
         var tScoreDic = tUserData.Property("ScoreDic");
         if (tScoreDic.PropertyExists())
         {
-            var scoreDic = tScoreDic.GetValue<Dictionary<int, UserScore>[]?>();
-            return scoreDic?.Select(dic => (IEnumerable<UserScore>)dic.Values).ToArray()
-                   ?? Array.Empty<IEnumerable<UserScore>>();
+            var scoreDic = tScoreDic.GetValue<Dictionary<int, UserScore>[]>() ??
+                           Array.Empty<Dictionary<int, UserScore>>();
+            return scoreDic.Select(dic => (IEnumerable<UserScore>)dic.Values).ToArray();
         }
 
         throw new MissingFieldException("No matching UserData.ScoreList/ScoreDic found");

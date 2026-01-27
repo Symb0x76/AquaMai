@@ -31,8 +31,7 @@ namespace AquaMai.Mods.UX;
 [EnableGameVersion(23000)]
 public class ImmediateSave
 {
-    [ConfigEntry(name: "显示保存中提示")]
-    public static readonly bool showTip = true;
+    [ConfigEntry(name: "显示保存中提示")] public static readonly bool showTip = true;
 
     [HarmonyPatch]
     public static class RequestUploadUserPlayLogMaybeListData
@@ -100,7 +99,8 @@ public class ImmediateSave
             }
 
             SaveDataFix(userData);
-            PacketHelper.StartPacket(Shim.CreatePacketUploadUserPlaylog(i, userData, (int)GameManager.MusicTrackNumber - 1,
+            PacketHelper.StartPacket(Shim.CreatePacketUploadUserPlaylog(i, userData,
+                (int)GameManager.MusicTrackNumber - 1,
                 delegate
                 {
                     MelonLogger.Msg("[ImmediateSave] Playlog saved");
@@ -115,9 +115,11 @@ public class ImmediateSave
                         SoundManager.PlaySE(Mai2.Mai2Cue.Cue.SE_ENTRY_AIME_ERROR, j);
                         MessageHelper.ShowMessage(Locale.PlaylogSaveError);
                     }
+
                     CheckSaveDone();
                 }));
-            PacketHelper.StartPacket(Shim.CreatePacketUpsertUserAll(i, userData, delegate(int code)
+
+            var packetUpsertUserAll = Shim.CreatePacketUpsertUserAll(i, userData, delegate(int code)
             {
                 if (code == 1)
                 {
@@ -133,6 +135,7 @@ public class ImmediateSave
                         SoundManager.PlaySE(Mai2.Mai2Cue.Cue.SE_ENTRY_AIME_ERROR, j);
                         MessageHelper.ShowMessage(Locale.UserAllUpsertError);
                     }
+
                     CheckSaveDone();
                 }
             }, delegate(PacketStatus err)
@@ -144,8 +147,25 @@ public class ImmediateSave
                     SoundManager.PlaySE(Mai2.Mai2Cue.Cue.SE_ENTRY_AIME_ERROR, j);
                     MessageHelper.ShowMessage(Locale.UserAllUpsertError);
                 }
+
                 CheckSaveDone();
-            }));
+            });
+
+            if (packetUpsertUserAll != null)
+            {
+                PacketHelper.StartPacket(packetUpsertUserAll);
+            }
+            else
+            {
+                MelonLogger.Error("[ImmediateSave] PacketUpsertUserAll unavailable; skipping send.");
+                if (!_isPlaying)
+                {
+                    SoundManager.PlaySE(Mai2.Mai2Cue.Cue.SE_ENTRY_AIME_ERROR, j);
+                    MessageHelper.ShowMessage(Locale.UserAllUpsertError);
+                }
+
+                CheckSaveDone();
+            }
         }
     }
 
@@ -163,7 +183,9 @@ public class ImmediateSave
                 num = userData.RatingList.RatingList.Last().SingleRate;
             }
         }
-        catch { }
+        catch
+        {
+        }
 
         num = (float)Math.Ceiling((double)((num + 1f) / GameManager.TheoryRateBorderNum) * 10.0);
         float num2 = 0f;
@@ -174,13 +196,19 @@ public class ImmediateSave
                 num2 = userData.RatingList.NewRatingList.Last().SingleRate;
             }
         }
-        catch { }
+        catch
+        {
+        }
 
         num2 = (float)Math.Ceiling((double)((num2 + 1f) / GameManager.TheoryRateBorderNum) * 10.0);
         string logDateString = TimeManager.GetLogDateString(TimeManager.PlayBaseTime);
-        string timeJp = (string.IsNullOrEmpty(userData.Detail.DailyBonusDate) ? TimeManager.GetLogDateString(0L) : userData.Detail.DailyBonusDate);
-        if (userData.IsEntry && userData.Detail.IsNetMember >= 2 && !GameManager.IsEventMode && TimeManager.GetUnixTime(logDateString) > TimeManager.GetUnixTime(timeJp) &&
-            Singleton<UserDataManager>.Instance.IsSingleUser() && !GameManager.IsFreedomMode && !GameManager.IsCourseMode && !DoneEntry.IsWeekdayBonus(userData))
+        string timeJp = (string.IsNullOrEmpty(userData.Detail.DailyBonusDate)
+            ? TimeManager.GetLogDateString(0L)
+            : userData.Detail.DailyBonusDate);
+        if (userData.IsEntry && userData.Detail.IsNetMember >= 2 && !GameManager.IsEventMode &&
+            TimeManager.GetUnixTime(logDateString) > TimeManager.GetUnixTime(timeJp) &&
+            Singleton<UserDataManager>.Instance.IsSingleUser() && !GameManager.IsFreedomMode &&
+            !GameManager.IsCourseMode && !DoneEntry.IsWeekdayBonus(userData))
         {
             userData.Detail.DailyBonusDate = logDateString;
         }
@@ -257,7 +285,8 @@ public class ImmediateSave
 
         userData.Detail.LastGameId = ConstParameter.GameIDStr;
         userData.Detail.LastRomVersion = Singleton<SystemConfig>.Instance.config.romVersionInfo.versionNo.versionString;
-        userData.Detail.LastDataVersion = Singleton<SystemConfig>.Instance.config.dataVersionInfo.versionNo.versionString;
+        userData.Detail.LastDataVersion =
+            Singleton<SystemConfig>.Instance.config.dataVersionInfo.versionNo.versionString;
     }
 
     private class SavingUi : MonoBehaviour
