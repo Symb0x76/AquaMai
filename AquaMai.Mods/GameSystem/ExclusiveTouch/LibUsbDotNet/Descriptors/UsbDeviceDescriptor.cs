@@ -87,19 +87,11 @@ public class UsbDeviceDescriptor : UsbDescriptor
 
 	public override bool Equals(object obj)
 	{
-		if (obj == null)
+		if (obj is not UsbDeviceDescriptor other)
 		{
 			return false;
 		}
-		if (this == obj)
-		{
-			return true;
-		}
-		if (obj.GetType() != typeof(UsbDeviceDescriptor))
-		{
-			return false;
-		}
-		return Equals((UsbDeviceDescriptor)obj);
+		return Equals(other);
 	}
 
 	public override int GetHashCode()

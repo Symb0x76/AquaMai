@@ -128,6 +128,7 @@ public class UsbDeviceInfo
 		gCHandle.Free();
 		if (descriptor)
 		{
+			usbDevice.mCachedDeviceDescriptor = deviceDescriptor;
 			return true;
 		}
 		return false;
